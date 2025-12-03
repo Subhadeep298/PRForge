@@ -19,6 +19,7 @@ public class UserController {
                 : principal.getAttribute("login"));
         response.put("avatar_url", principal.getAttribute("avatar_url"));
         response.put("email", principal.getAttribute("email"));
+        response.put("id", principal.getAttribute("id"));
         return response;
     }
 }

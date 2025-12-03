@@ -13,6 +13,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Github, LogOut } from "lucide-react";
 
 interface User {
+  id: string;
   name: string;
   avatar_url: string;
   email: string;
@@ -32,11 +33,13 @@ const Navbar: React.FC = () => {
         withCredentials: true,
       });
       setUser(response.data);
+      if (response.data.id) {
+        document.cookie = `user_id=${response.data.id}; path=/; max-age=86400; SameSite=Lax`;
+      }
     } catch (error) {
       setUser(null);
     } finally {
       setLoading(false);
-      console.log(user);
     }
   };
 

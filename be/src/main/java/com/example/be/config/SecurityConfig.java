@@ -38,7 +38,7 @@ public class SecurityConfig {
                             response.setStatus(jakarta.servlet.http.HttpServletResponse.SC_OK);
                         })
                         .invalidateHttpSession(true)
-                        .deleteCookies("JSESSIONID")
+                        .deleteCookies("JSESSIONID", "user_id")
                         .permitAll());
         return http.build();
     }
