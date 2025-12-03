@@ -1,3 +1,4 @@
+<img width="1919" height="946" alt="image" src="https://github.com/user-attachments/assets/0d843e12-8e75-4caa-8eae-e8cd4bb8a002" />
 # PRForge
 
 A full-stack application for streamlining Pull Requests, featuring GitHub OAuth integration and Jira ticket visualization.
