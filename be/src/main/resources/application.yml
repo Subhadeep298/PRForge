@@ -15,6 +15,7 @@ spring:
             scope:
               - read:jira-work
               - read:jira-user
+              - read:me
               - offline_access
             authorization-grant-type: authorization_code
             client-name: Jira
@@ -27,7 +28,7 @@ spring:
             authorization-uri: https://auth.atlassian.com/authorize
             token-uri: https://auth.atlassian.com/oauth/token
             user-name-attribute: account_id
-            # NO user-info-uri = Custom service handles it
+            user-info-uri: https://api.atlassian.com/me
 
   datasource:
     url: jdbc:postgresql://localhost:5432/oauth2_demo

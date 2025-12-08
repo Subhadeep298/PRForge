@@ -18,6 +18,7 @@ import tools.jackson.databind.JsonNode;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -39,8 +40,7 @@ public class JiraConnectionServiceImpl implements JiraConnectionService {
         }
 
         JiraConnection connectionDoesExist = jiraConnectionRepo.findByUserIdAndName(
-                jiraConnectionRequestDto.getUserId(), jiraConnectionRequestDto.getName()
-        );
+                jiraConnectionRequestDto.getUserId(), jiraConnectionRequestDto.getName());
         if (connectionDoesExist != null) {
             log.warn("Connection {} already exists for userId: {}",
                     jiraConnectionRequestDto.getName(), jiraConnectionRequestDto.getUserId());
@@ -92,14 +92,13 @@ public class JiraConnectionServiceImpl implements JiraConnectionService {
                 jiraConnectionRequestDto.getProjectKey(),
                 jiraConnectionRequestDto.getProjectName(),
                 jiraConnectionRequestDto.getToken(),
-                jiraConnectionRequestDto.getUsername()
-        );
+                jiraConnectionRequestDto.getUsername());
         log.info("Connection test result for {}: {}", jiraConnectionRequestDto.getName(), keyAndNameValid);
         return keyAndNameValid;
     }
 
     public boolean doesConnectionExistandNameMatch(String domainurl, String projectKey,
-                                                   String expectedProjectName, String apiToken, String username) {
+            String expectedProjectName, String apiToken, String username) {
         String url = domainurl + "/rest/api/3/project/" + projectKey;
         try {
             HttpHeaders headers = createAuthHeader(username, apiToken);
@@ -156,7 +155,11 @@ public class JiraConnectionServiceImpl implements JiraConnectionService {
         HttpEntity<Void> entity = new HttpEntity<>(headers);
 
         Map<String, Object> uriVariables = new HashMap<>();
-        uriVariables.put("jql", "project=DEM ORDER BY created DESC");
+        if (connection.getProjectKey() != null && !connection.getProjectKey().isEmpty()) {
+            uriVariables.put("jql", "project=" + connection.getProjectKey() + " ORDER BY created DESC");
+        } else {
+            uriVariables.put("jql", "ORDER BY created DESC");
+        }
         uriVariables.put("startAt", 0);
         uriVariables.put("maxResults", 100);
         uriVariables.put("fields", "summary,description,status,assignee,reporter,priority,created,updated,comment");
@@ -167,8 +170,7 @@ public class JiraConnectionServiceImpl implements JiraConnectionService {
                 HttpMethod.GET,
                 entity,
                 JsonNode.class,
-                uriVariables
-        );
+                uriVariables);
 
         log.info("Tickets fetched successfully for connectionId: {}", connectionId);
         return extractTicketKeys(response.getBody());
@@ -219,8 +221,7 @@ public class JiraConnectionServiceImpl implements JiraConnectionService {
                     HttpMethod.GET,
                     entity,
                     JsonNode.class,
-                    uriVariables
-            );
+                    uriVariables);
 
             JiraIssueDetails issueDetails = extractIssueDetails(response.getBody());
 
@@ -265,8 +266,7 @@ public class JiraConnectionServiceImpl implements JiraConnectionService {
                 HttpMethod.GET,
                 entity,
                 JsonNode.class,
-                uriVariables
-        );
+                uriVariables);
 
         JiraIssueDetails issueDetails = extractIssueDetails(response.getBody());
 
@@ -295,7 +295,11 @@ public class JiraConnectionServiceImpl implements JiraConnectionService {
         HttpEntity<Void> entity = new HttpEntity<>(headers);
 
         Map<String, Object> uriVariables = new HashMap<>();
-        uriVariables.put("jql", "project=" + connection.getProjectKey() + " ORDER BY created DESC");
+        if (connection.getProjectKey() != null && !connection.getProjectKey().isEmpty()) {
+            uriVariables.put("jql", "project=" + connection.getProjectKey() + " ORDER BY created DESC");
+        } else {
+            uriVariables.put("jql", "ORDER BY created DESC");
+        }
         uriVariables.put("startAt", 0);
         uriVariables.put("maxResults", 100);
         uriVariables.put("fields", "summary,description,status,assignee,reporter,priority,created,updated,comment");
@@ -306,15 +310,15 @@ public class JiraConnectionServiceImpl implements JiraConnectionService {
                 HttpMethod.GET,
                 entity,
                 JsonNode.class,
-                uriVariables
-        );
+                uriVariables);
 
         log.info("Tickets fetched successfully for user {} using OAuth", userId);
         return extractTicketKeys(response.getBody());
     }
 
     public String parseADF(JsonNode node) {
-        if (node == null) return "";
+        if (node == null)
+            return "";
 
         StringBuilder result = new StringBuilder();
 
@@ -340,7 +344,8 @@ public class JiraConnectionServiceImpl implements JiraConnectionService {
 
     public JiraIssueDetails extractIssueDetails(JsonNode response) {
         JsonNode fields = response.get("fields");
-        if (fields == null) return null;
+        if (fields == null)
+            return null;
 
         String title = fields.get("summary").asText();
         String descriptionText = parseADF(fields.get("description"));

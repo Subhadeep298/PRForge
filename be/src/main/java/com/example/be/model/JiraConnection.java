@@ -26,22 +26,25 @@ public class JiraConnection {
     private String userId;
 
     @Column(unique = true)
-    private String name;          // manual connection name
+    private String name; // manual connection name
 
     // Manual auth fields (keep as‑is)
     private String username;
     private String domainUrl;
+    @Column(length = 4096)
     private String token;
     private String projectName;
     private String projectKey;
 
     // New: OAuth‑based Jira fields
-    private String jiraAccountId;     // from /me
+    private String jiraAccountId; // from /me
     private String jiraEmail;
-    private String cloudId;           // Jira site id from accessible-resources
-    private String baseUrl;           // e.g. https://your-site.atlassian.net
+    private String cloudId; // Jira site id from accessible-resources
+    private String baseUrl; // e.g. https://your-site.atlassian.net
 
+    @Column(length = 4096)
     private String oauthAccessToken;
+    @Column(length = 4096)
     private String oauthRefreshToken;
     @Temporal(TemporalType.TIMESTAMP)
     private Date oauthAccessTokenExpiresAt;
@@ -52,5 +55,3 @@ public class JiraConnection {
     @LastModifiedDate
     private Date updatedAt;
 }
-
-

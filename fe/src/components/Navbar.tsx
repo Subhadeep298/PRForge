@@ -1,5 +1,4 @@
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import React from 'react';
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -11,54 +10,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Github, LogOut } from "lucide-react";
-
-interface User {
-  id: string;
-  name: string;
-  avatar_url: string;
-  email: string;
-}
+import { useAuth } from '../context/AuthContext';
 
 const Navbar: React.FC = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchUser();
-  }, []);
-
-  const fetchUser = async () => {
-    try {
-      const response = await axios.get('http://localhost:8080/api/user', {
-        withCredentials: true,
-      });
-      setUser(response.data);
-      if (response.data.id) {
-        document.cookie = `user_id=${response.data.id}; path=/; max-age=86400; SameSite=Lax`;
-      }
-    } catch (error) {
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleLogin = () => {
-    window.location.href = 'http://localhost:8080/oauth2/authorization/github';
-  };
-
-  const handleLogout = async () => {
-    try {
-      await axios.post('http://localhost:8080/logout', {}, {
-        withCredentials: true,
-      });
-      setUser(null);
-      // Optional: Redirect to home or refresh
-      window.location.href = '/';
-    } catch (error) {
-      console.error('Logout failed', error);
-    }
-  };
+  const { user, loading, login, logout, disconnectJira } = useAuth();
 
   return (
     <nav className="border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -93,14 +48,22 @@ const Navbar: React.FC = () => {
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:text-red-600 cursor-pointer">
+                {user.jira_connected && (
+                  <>
+                    <DropdownMenuItem onClick={disconnectJira} className="text-orange-600 focus:text-orange-600 cursor-pointer">
+                      <span>Disconnect Jira</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
+                <DropdownMenuItem onClick={logout} className="text-red-600 focus:text-red-600 cursor-pointer">
                   <LogOut className="mr-2 h-4 w-4" />
                   <span>Log out</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Button onClick={handleLogin} className="gap-2 font-semibold">
+            <Button onClick={login} className="gap-2 font-semibold">
               <Github className="h-4 w-4" />
               Login with GitHub
             </Button>

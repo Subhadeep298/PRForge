@@ -4,7 +4,7 @@ import com.example.be.model.JiraConnection;
 import com.example.be.model.User;
 import com.example.be.repository.JiraConnectionRepo;
 import com.example.be.repository.UserRepository;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -27,7 +27,6 @@ import java.util.Date;
 import java.util.Map;
 import java.util.UUID;
 
-
 @Component
 public class OAuth2LoginSuccessHandler extends SavedRequestAwareAuthenticationSuccessHandler {
 
@@ -37,9 +36,9 @@ public class OAuth2LoginSuccessHandler extends SavedRequestAwareAuthenticationSu
     private final RestTemplate restTemplate;
 
     public OAuth2LoginSuccessHandler(UserRepository userRepository,
-                                     JiraConnectionRepo jiraConnectionRepo,
-                                     OAuth2AuthorizedClientService authorizedClientService,
-                                     RestTemplate restTemplate) {
+            JiraConnectionRepo jiraConnectionRepo,
+            OAuth2AuthorizedClientService authorizedClientService,
+            RestTemplate restTemplate) {
         this.userRepository = userRepository;
         this.jiraConnectionRepo = jiraConnectionRepo;
         this.authorizedClientService = authorizedClientService;
@@ -48,8 +47,8 @@ public class OAuth2LoginSuccessHandler extends SavedRequestAwareAuthenticationSu
 
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request,
-                                        HttpServletResponse response,
-                                        Authentication authentication)
+            HttpServletResponse response,
+            Authentication authentication)
             throws ServletException, IOException {
 
         OAuth2AuthenticationToken oauthToken = (OAuth2AuthenticationToken) authentication;
@@ -95,21 +94,52 @@ public class OAuth2LoginSuccessHandler extends SavedRequestAwareAuthenticationSu
     }
 
     private void handleJiraLogin(OAuth2AuthenticationToken oauthToken,
-                                 OAuth2User oauth2User,
-                                 HttpServletRequest request) {
+            OAuth2User oauth2User,
+            HttpServletRequest request) {
 
+        // 1. Get Jira Profile Info
+        String jiraAccountId = (String) oauth2User.getAttribute("account_id");
+        String jiraEmail = (String) oauth2User.getAttribute("email"); // Often null/restricted
+        String jiraName = (String) oauth2User.getAttribute("name");
+        String jiraAvatar = (String) oauth2User.getAttribute("picture");
+
+        // 2. Identify or Create User (Standalone Support)
         String githubId = (String) request.getSession().getAttribute("github_id");
-        if (githubId == null) {
-            throw new IllegalStateException("No GitHub session found for Jira login");
+        User user;
+
+        if (githubId != null) {
+            // Case A: Link to existing logged-in session (e.g. GitHub user adding Jira)
+            user = userRepository.findByProviderId(githubId)
+                    .orElseThrow(() -> new IllegalStateException("User from session not found"));
+        } else {
+            // Case B: Standalone Jira Login
+            // We'll treat 'jiraAccountId' as the unique providerId for Jira-only users if
+            // no email match found
+            // NOTE: Ideally, we should unify by email, but Jira email visibility varies.
+
+            // Search by providerId (jiraAccountId)
+            user = userRepository.findByProviderId(jiraAccountId).orElse(null);
+
+            if (user == null && jiraEmail != null) {
+                // effective "upsert" or link by email if desired
+                // For now, let's keep it simple: create new if not found by providerId
+            }
+
+            if (user == null) {
+                user = User.builder()
+                        .providerId(jiraAccountId)
+                        .email(jiraEmail)
+                        .name(jiraName != null ? jiraName : "Jira User")
+                        .avatarUrl(jiraAvatar)
+                        .build();
+                userRepository.save(user);
+            }
         }
 
-        User user = userRepository.findByProviderId(githubId)
-                .orElseThrow(() -> new IllegalStateException("GitHub user not found"));
-
-        OAuth2AuthorizedClient authorizedClient =
-                authorizedClientService.loadAuthorizedClient(
-                        oauthToken.getAuthorizedClientRegistrationId(),
-                        oauth2User.getName());
+        // 3. Fetch Accessible Resources (Cloud ID)
+        OAuth2AuthorizedClient authorizedClient = authorizedClientService.loadAuthorizedClient(
+                oauthToken.getAuthorizedClientRegistrationId(),
+                oauth2User.getName());
 
         String accessToken = authorizedClient.getAccessToken().getTokenValue();
         Instant expiresAt = authorizedClient.getAccessToken().getExpiresAt();
@@ -117,10 +147,6 @@ public class OAuth2LoginSuccessHandler extends SavedRequestAwareAuthenticationSu
                 ? authorizedClient.getRefreshToken().getTokenValue()
                 : null;
 
-        String jiraAccountId = (String) oauth2User.getAttribute("account_id");
-        String jiraEmail = (String) oauth2User.getAttribute("email");
-
-        // Call accessible-resources to get cloudId & baseUrl
         String resourcesUrl = "https://api.atlassian.com/oauth/token/accessible-resources";
         org.springframework.http.HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(accessToken);
@@ -135,16 +161,16 @@ public class OAuth2LoginSuccessHandler extends SavedRequestAwareAuthenticationSu
             throw new IllegalStateException("No accessible Jira resources found for user");
         }
 
-        JsonNode site = resources.get(0); // pick first site
+        JsonNode site = resources.get(0); // Default to first available site
         String cloudId = site.get("id").asText();
         String baseUrl = site.get("url").asText();
 
-        // Create or update JiraConnection row for this user + site
+        // 4. Create/Update Linkage
         JiraConnection connection = jiraConnectionRepo
-                .findByUserIdAndCloudId(githubId, cloudId)
+                .findByUserIdAndCloudId(user.getProviderId(), cloudId)
                 .orElse(JiraConnection.builder()
                         .id(UUID.randomUUID())
-                        .userId(githubId)
+                        .userId(user.getProviderId())
                         .name("Jira OAuth " + cloudId)
                         .build());
 

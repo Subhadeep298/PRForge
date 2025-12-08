@@ -18,5 +18,9 @@ public interface JiraConnectionRepo extends JpaRepository<JiraConnection, UUID> 
 
     // Optional: at most one OAuth connection per (user, cloudId)
     Optional<JiraConnection> findByUserIdAndCloudId(String userId, String cloudId);
-}
 
+    Optional<JiraConnection> findByJiraAccountId(String jiraAccountId);
+
+    @org.springframework.transaction.annotation.Transactional
+    void deleteByJiraAccountId(String jiraAccountId);
+}
