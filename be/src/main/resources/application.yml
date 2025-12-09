@@ -1,15 +1,4 @@
 spring:
-  application:
-    name: oauth2-demo
-  datasource:
-    url: jdbc:postgresql://localhost:5432/oauth2_demo
-    username: postgres
-    password: password
-    driver-class-name: org.postgresql.Driver
-  jpa:
-    hibernate:
-      ddl-auto: update
-    show-sql: true
   security:
     oauth2:
       client:
@@ -17,4 +6,42 @@ spring:
           github:
             client-id: ${GITHUB_CLIENT_ID}
             client-secret: ${GITHUB_CLIENT_SECRET}
-            scope: read:user
+            scope:
+              - read:user,repo
+          jira:
+            client-id: ${JIRA_CLIENT_ID}                    # From your app
+            client-secret: ${JIRA_CLIENT_SECRET}             # 43+ chars
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            scope:
+              - read:jira-work
+              - read:jira-user
+              - read:me
+              - offline_access
+            authorization-grant-type: authorization_code
+            client-name: Jira
+        provider:
+          github:
+            authorization-uri: https://github.com/login/oauth/authorize
+            token-uri: https://github.com/login/oauth/access_token
+            user-info-uri: https://api.github.com/user
+          jira:
+            authorization-uri: https://auth.atlassian.com/authorize
+            token-uri: https://auth.atlassian.com/oauth/token
+            user-name-attribute: account_id
+            user-info-uri: https://api.atlassian.com/me
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/oauth2_demo
+    username: postgres
+    password: password
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+logging:
+  level:
+    org.springframework.security: DEBUG
+
+groq:
+  api-key: ${GROQ_API_KEY:}
+

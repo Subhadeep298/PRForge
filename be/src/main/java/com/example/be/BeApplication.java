@@ -2,6 +2,9 @@ package com.example.be;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.client.RestTemplate;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -15,7 +18,13 @@ public class BeApplication {
 		SpringApplication.run(BeApplication.class, args);
 	}
 
-	private static void loadEnv() {
+    @Bean
+    public RestTemplate restTemplate() {
+        return new RestTemplate();
+    }
+
+
+    private static void loadEnv() {
 		try {
 			// Try to load .env from current directory
 			if (Files.exists(Paths.get(".env"))) {
