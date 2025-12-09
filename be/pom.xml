@@ -50,6 +50,14 @@
 			<groupId>org.springframework.session</groupId>
 			<artifactId>spring-session-jdbc</artifactId>
 		</dependency>
+	<dependency>
+		<groupId>com.fasterxml.jackson.core</groupId>
+		<artifactId>jackson-databind</artifactId>
+	</dependency>
+	<dependency>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-webflux</artifactId>
+	</dependency>
 
 		<dependency>
 			<groupId>org.postgresql</groupId>
@@ -72,6 +80,12 @@
         </dependency>
         <dependency>
 			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-devtools</artifactId>
+			<scope>runtime</scope>
+			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-data-jpa-test</artifactId>
 			<scope>test</scope>
 		</dependency>
@@ -91,10 +105,17 @@
 			<scope>test</scope>
 		</dependency>
 
+	<dependency>
+		<groupId>me.paulschwarz</groupId>
+		<artifactId>spring-dotenv</artifactId>
+		<version>4.0.0</version>
+	</dependency>
+
+		<!-- Google Generative AI (Gemini) -->
 		<dependency>
-			<groupId>me.paulschwarz</groupId>
-			<artifactId>spring-dotenv</artifactId>
-			<version>4.0.0</version>
+			<groupId>com.google.genai</groupId>
+			<artifactId>google-genai</artifactId>
+			<version>0.1.0</version>
 		</dependency>
 	</dependencies>
 

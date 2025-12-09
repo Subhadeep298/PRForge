@@ -7,7 +7,7 @@ spring:
             client-id: ${GITHUB_CLIENT_ID}
             client-secret: ${GITHUB_CLIENT_SECRET}
             scope:
-              - read:user
+              - read:user,repo
           jira:
             client-id: ${JIRA_CLIENT_ID}                    # From your app
             client-secret: ${JIRA_CLIENT_SECRET}             # 43+ chars
@@ -41,3 +41,7 @@ spring:
 logging:
   level:
     org.springframework.security: DEBUG
+
+groq:
+  api-key: ${GROQ_API_KEY:}
+
