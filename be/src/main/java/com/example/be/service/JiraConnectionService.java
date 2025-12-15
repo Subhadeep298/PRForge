@@ -23,7 +23,9 @@ public interface JiraConnectionService {
     Map<String, UUID> getAllConnectionsByUserid(String ticketId);
 
     // New methods for OAuth‑based flow
-    JiraIssueDetailsResponse getTicketByIdUsingOAuth(String userId, String ticketKey);
+    Map<String, String> getAllTicketsForCurrentUserOAuth(UUID connectionId);
 
-    Map<String, String> getAllTicketsForUserUsingOAuth(String userId);
+    JiraIssueDetailsResponse getTicketByIdUsingOAuth(UUID connectionId, String ticketKey);
+
+//    Map<String, String> getAllTicketsForUserUsingOAuth(String userId);
 }

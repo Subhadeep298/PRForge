@@ -1,16 +1,24 @@
 package com.example.be.controller;
 
 import com.example.be.dto.JiraConnectionRequestDto;
+import com.example.be.dto.JiraIssueDetails;
 import com.example.be.dto.JiraIssueDetailsResponse;
 import com.example.be.dto.ValidateResponse;
+import com.example.be.model.JiraConnection;
+import com.example.be.repository.JiraConnectionRepo;
 import com.example.be.service.JiraConnectionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.RestTemplate;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 @RestController
@@ -20,6 +28,8 @@ import java.util.UUID;
 public class JiraConnectionController {
 
     private final JiraConnectionService jiraConnectionService;
+    private final JiraConnectionRepo jiraConnectionRepo;
+    private final RestTemplate restTemplate;
 
     @PostMapping("/save")
     public ResponseEntity<ValidateResponse> saveJiraConnection(
@@ -55,26 +65,59 @@ public class JiraConnectionController {
 
     // NEW: OAuth-based endpoints (no connectionId required)
 
-    @GetMapping("/oauth/issue/{ticketKey}")
-    public ResponseEntity<JiraIssueDetailsResponse> getIssueForCurrentUserOAuth(
-            @PathVariable String ticketKey,
-            @AuthenticationPrincipal OAuth2User principal) {
-
-        String githubId = String.valueOf(principal.getAttribute("id"));
-        log.info("Fetching ticket {} via OAuth for githubId {}", ticketKey, githubId);
-        JiraIssueDetailsResponse response =
-                jiraConnectionService.getTicketByIdUsingOAuth(githubId, ticketKey);
+    @GetMapping("/oauth/allTickets/{connectionId}")
+    public ResponseEntity<Map<String, String>> getAllTicketsForCurrentUserOAuth(@PathVariable UUID connectionId) {
+        Map<String, String> response =
+                jiraConnectionService.getAllTicketsForCurrentUserOAuth(connectionId);
         return ResponseEntity.ok(response);
     }
 
-    @GetMapping("/oauth/allTickets")
-    public ResponseEntity<Map<String, String>> getAllTicketsForCurrentUserOAuth(
-            @AuthenticationPrincipal OAuth2User principal) {
+    public ResponseEntity<JiraIssueDetailsResponse> getTicketByIdUsingOAuth(UUID connectionId, String ticketKey){
 
-        String githubId = String.valueOf(principal.getAttribute("id"));
-        log.info("Fetching all tickets via OAuth for githubId {}", githubId);
-        Map<String, String> tickets =
-                jiraConnectionService.getAllTicketsForUserUsingOAuth(githubId);
-        return ResponseEntity.ok(tickets);
     }
+
+    @GetMapping("/connection/{id}/token-test")
+    public ResponseEntity<Map<String, Object>> testToken(@PathVariable UUID id) {
+        JiraConnection conn = jiraConnectionRepo.findById(id).orElseThrow();
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("connectionId", conn.getId());
+        result.put("tokenLength", conn.getOauthAccessToken() != null ? conn.getOauthAccessToken().length() : 0);
+        result.put("tokenPreview", conn.getOauthAccessToken() != null ? conn.getOauthAccessToken().substring(0, 30) + "..." : "NULL");
+        result.put("baseUrl", conn.getBaseUrl());
+        result.put("expiresAt", conn.getOauthAccessTokenExpiresAt());
+
+        // 🔥 TEST JIRA API DIRECTLY
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Authorization", "Bearer " + conn.getOauthAccessToken().trim());
+            headers.set("Accept", "application/json");
+
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+            ResponseEntity<String> response = restTemplate.exchange(
+                    conn.getBaseUrl() + "/rest/api/3/myself",
+                    HttpMethod.GET, entity, String.class
+            );
+
+            result.put("jiraApiWorks", true);
+            result.put("jiraUser", response.getBody().substring(0, 100));
+        } catch (Exception e) {
+            result.put("jiraApiWorks", false);
+            result.put("jiraError", e.getMessage());
+        }
+
+        return ResponseEntity.ok(result);
+    }
+
+
+//    @GetMapping("/oauth/allTickets")
+//    public ResponseEntity<Map<String, String>> getAllTicketsForCurrentUserOAuth(
+//            @AuthenticationPrincipal OAuth2User principal) {
+//
+//        String githubId = String.valueOf(principal.getAttribute("id"));
+//        log.info("Fetching all tickets via OAuth for githubId {}", githubId);
+//        Map<String, String> tickets =
+//                jiraConnectionService.getAllTicketsForUserUsingOAuth(githubId);
+//        return ResponseEntity.ok(tickets);
+//    }
 }
