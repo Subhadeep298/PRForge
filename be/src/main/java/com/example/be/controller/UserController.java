@@ -1,16 +1,17 @@
 package com.example.be.controller;
 
+import com.example.be.dto.JiraConnectionOAuth;
 import com.example.be.model.User;
+import com.example.be.repository.UserRepository;
 import com.example.be.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.core.user.OAuth2User;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.Map;
 
 @RestController
@@ -20,12 +21,12 @@ import java.util.Map;
 public class UserController {
 
     private final UserService userService;
-    private final com.example.be.repository.JiraConnectionRepo jiraConnectionRepo;
+    private final UserRepository userRepository;
 
     @GetMapping("/user")
     public Map<String, Object> getUser(@AuthenticationPrincipal OAuth2User principal) {
         log.info("Fetching current authenticated user info");
-        Map<String, Object> response = new java.util.HashMap<>();
+        Map<String, Object> response = new HashMap<>();
 
         // Determine authentication source
         Object githubIdObj = principal.getAttribute("id");
@@ -38,71 +39,65 @@ public class UserController {
         boolean jiraConnected = false;
 
         if (jiraAccountIdObj != null) {
-            // Logged in with Jira Principal
+            // ✅ Jira OAuth login
             String jiraAccountId = String.valueOf(jiraAccountIdObj);
             log.info("Principal is Jira User: {}", jiraAccountId);
 
-            // Check if this Jira account is linked to a GitHub user
-            java.util.Optional<com.example.be.model.JiraConnection> connectionOpt = jiraConnectionRepo
-                    .findByJiraAccountId(jiraAccountId);
+            // Find GitHub user with this Jira OAuth connection (User.jiraConnectionOAuth)
+            User linkedUser = userRepository.findAll().stream()
+                    .filter(u -> u.getJiraConnectionOAuth() != null
+                            && jiraAccountId.equals(u.getJiraConnectionOAuth().getJiraAccountId()))
+                    .findFirst()
+                    .orElse(null);
 
-            if (connectionOpt.isPresent()) {
-                // LINK FOUND: Mask as GitHub User
-                com.example.be.model.JiraConnection connection = connectionOpt.get();
-                String githubUserId = connection.getUserId();
-                log.info("Found linked GitHub user ID: {}", githubUserId);
-
-                User githubUser = userService.findByProviderId(githubUserId);
-                if (githubUser != null) {
-                    finalName = githubUser.getName();
-                    finalAvatarUrl = githubUser.getAvatarUrl();
-                    finalId = githubUser.getProviderId(); // Use GitHub ID
-                    // Optionally use GitHub email if needed, but session is Jira's
-                    if (githubUser.getEmail() != null)
-                        finalEmail = githubUser.getEmail();
-                    jiraConnected = true;
-                    log.info("Masking identity as GitHub User: {}", finalName);
-                } else {
-                    // Fallback to Jira profile if local user not found
-                    finalName = principal.getAttribute("name");
-                    finalAvatarUrl = principal.getAttribute("picture");
-                    finalId = jiraAccountId;
-                    jiraConnected = true;
+            if (linkedUser != null) {
+                finalName = linkedUser.getName();
+                finalAvatarUrl = linkedUser.getAvatarUrl();
+                finalId = linkedUser.getProviderId();
+                if (linkedUser.getEmail() != null) {
+                    finalEmail = linkedUser.getEmail();
                 }
+                jiraConnected = true;
+                log.info("Found linked GitHub user: {}", linkedUser.getProviderId());
             } else {
-                // STANDALONE JIRA LOGIN (Not linked)
                 finalName = principal.getAttribute("name");
                 finalAvatarUrl = principal.getAttribute("picture");
                 finalId = jiraAccountId;
                 jiraConnected = true;
+                log.warn("Standalone Jira login (no GitHub link)");
             }
-        } else {
-            // Logged in with GitHub Principal
-            log.info("Principal is GitHub User");
+        } else if (githubIdObj != null) {
+            // ✅ GitHub login
+            String githubId = String.valueOf(githubIdObj);
+            log.info("Principal is GitHub User: {}", githubId);
+
+            User githubUser = userService.findByProviderId(githubId);
+
             String name = principal.getAttribute("name");
-            if (name == null)
-                name = principal.getAttribute("login");
+            if (name == null) name = principal.getAttribute("login");
 
             finalName = name;
             Object avatar = principal.getAttribute("avatar_url");
-            if (avatar == null)
-                avatar = principal.getAttribute("picture");
+            if (avatar == null) avatar = principal.getAttribute("picture");
             finalAvatarUrl = avatar;
-            finalId = githubIdObj;
+            finalId = githubId;
 
-            // Check for Jira connection
-            if (finalId != null) {
-                jiraConnected = !jiraConnectionRepo.findAllByUserId(String.valueOf(finalId)).isEmpty();
-            }
+            // ✅ ONLY check User.jiraConnectionOAuth (ignore manual connections)
+            jiraConnected = githubUser != null && githubUser.getJiraConnectionOAuth() != null;
+        } else {
+            log.warn("Unknown principal type");
+            finalName = "Unknown";
+            finalAvatarUrl = null;
+            finalId = null;
         }
 
         response.put("name", finalName);
         response.put("avatar_url", finalAvatarUrl);
         response.put("email", finalEmail);
         response.put("id", finalId);
-        response.put("jira_connected", jiraConnected);
+        response.put("jira_connected", jiraConnected);  // ✅ Only User.jiraConnectionOAuth
 
-        log.info("User info retrieved: {}, jira_connected: {}", finalName, jiraConnected);
+        log.info("User info: {}, jira_connected: {}", finalName, jiraConnected);
         return response;
     }
 
@@ -118,36 +113,80 @@ public class UserController {
         return user;
     }
 
-    @org.springframework.web.bind.annotation.DeleteMapping("/jira/disconnect")
-    public org.springframework.http.ResponseEntity<?> disconnectJira(@AuthenticationPrincipal OAuth2User principal) {
+    @DeleteMapping("/jira/disconnect")
+    public ResponseEntity<?> disconnectJira(@AuthenticationPrincipal OAuth2User principal) {
         if (principal == null) {
-            return org.springframework.http.ResponseEntity.status(401).build();
+            return ResponseEntity.status(401).build();
         }
 
         Object githubIdObj = principal.getAttribute("id");
         Object jiraAccountIdObj = principal.getAttribute("account_id");
 
         if (jiraAccountIdObj != null) {
-            // Logged in via Jira: Find connection by Jira Account ID
+            // ✅ Jira login: Remove User.jiraConnectionOAuth
             String jiraAccountId = String.valueOf(jiraAccountIdObj);
-            log.info("Disconnecting Jira for Jira Principal: {}", jiraAccountId);
+            log.info("Disconnecting Jira OAuth for accountId: {}", jiraAccountId);
 
-            // Use derived delete method
-            jiraConnectionRepo.deleteByJiraAccountId(jiraAccountId);
+            User linkedUser = userRepository.findAll().stream()
+                    .filter(u -> u.getJiraConnectionOAuth() != null
+                            && jiraAccountId.equals(u.getJiraConnectionOAuth().getJiraAccountId()))
+                    .findFirst()
+                    .orElse(null);
+
+            if (linkedUser != null) {
+                linkedUser.setJiraConnectionOAuth(null);
+                userRepository.save(linkedUser);
+                log.info("Jira OAuth disconnected from user: {}", linkedUser.getProviderId());
+                return ResponseEntity.ok().build();
+            }
+            log.warn("No linked user found for Jira accountId: {}", jiraAccountId);
 
         } else if (githubIdObj != null) {
-            // Logged in via GitHub: Find connections by GitHub User ID
-            String userId = String.valueOf(githubIdObj);
-            log.info("Disconnecting Jira for GitHub User: {}", userId);
+            // ✅ GitHub login: Remove User.jiraConnectionOAuth
+            String githubId = String.valueOf(githubIdObj);
+            log.info("Disconnecting Jira OAuth for GitHub user: {}", githubId);
 
-            java.util.List<com.example.be.model.JiraConnection> connections = jiraConnectionRepo
-                    .findAllByUserId(userId);
-            jiraConnectionRepo.deleteAll(connections);
-        } else {
-            log.warn("Unknown principal type during disconnect");
-            return org.springframework.http.ResponseEntity.badRequest().build();
+            User githubUser = userService.findByProviderId(githubId);
+            if (githubUser != null && githubUser.getJiraConnectionOAuth() != null) {
+                githubUser.setJiraConnectionOAuth(null);
+                userRepository.save(githubUser);
+                log.info("Jira OAuth disconnected from GitHub user: {}", githubId);
+                return ResponseEntity.ok().build();
+            }
+            log.info("No Jira OAuth connection found for user: {}", githubId);
         }
 
-        return org.springframework.http.ResponseEntity.ok().build();
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/jira/connection-status/{providerId}")
+    public Map<String, Object> getJiraConnectionStatus(@PathVariable String providerId) {
+        log.info("Checking Jira OAuth status for providerId: {}", providerId);
+
+        Map<String, Object> status = new HashMap<>();
+
+        User user = userService.findByProviderId(providerId);
+        if (user == null) {
+            status.put("error", "User not found");
+            return status;
+        }
+
+        // ✅ ONLY check User.jiraConnectionOAuth
+        JiraConnectionOAuth oauthConn = user.getJiraConnectionOAuth();
+        boolean hasJiraConnection = oauthConn != null && oauthConn.getOauthAccessToken() != null;
+
+        status.put("jira_connected", hasJiraConnection);
+
+        if (hasJiraConnection) {
+            status.put("jiraDetails", Map.of(
+                    "jiraEmail", oauthConn.getJiraEmail(),
+                    "jiraName", oauthConn.getJiraName(),
+                    "jiraAccountId", oauthConn.getJiraAccountId(),
+                    "cloudId", oauthConn.getCloudId()
+            ));
+        }
+
+        log.info("Jira OAuth status for {}: {}", providerId, hasJiraConnection);
+        return status;
     }
 }
