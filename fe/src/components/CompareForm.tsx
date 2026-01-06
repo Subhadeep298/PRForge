@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Github, Lock, Sparkles } from "lucide-react";
+import { Github, Lock, Sparkles, Ticket } from "lucide-react";
 
 interface CompareFormData {
     owner: string;
     repo: string;
     baseBranch: string;
     headBranch: string;
+    jiraTicketKey?: string;
 }
 
 interface User {
@@ -30,7 +31,8 @@ const CompareForm: React.FC = () => {
         owner: '',
         repo: '',
         baseBranch: 'main',
-        headBranch: ''
+        headBranch: '',
+        jiraTicketKey: ''
     });
 
     const [loading, setLoading] = useState(false);
@@ -39,10 +41,22 @@ const CompareForm: React.FC = () => {
     const [user, setUser] = useState<User | null>(null);
     const [authLoading, setAuthLoading] = useState(true);
     const [prSuggestion, setPrSuggestion] = useState<{ title: string, description: string } | null>(null);
+    
+    // JIRA tickets state
+    const [jiraTickets, setJiraTickets] = useState<Map<string, string>>(new Map());
+    const [jiraLoading, setJiraLoading] = useState(false);
+    const [jiraError, setJiraError] = useState<string | null>(null);
 
     useEffect(() => {
         checkAuthentication();
     }, []);
+
+    // Fetch JIRA tickets when user is authenticated
+    useEffect(() => {
+        if (user?.id) {
+            fetchJiraTickets();
+        }
+    }, [user]);
 
     const checkAuthentication = async () => {
         try {
@@ -57,11 +71,47 @@ const CompareForm: React.FC = () => {
         }
     };
 
+    const fetchJiraTickets = async () => {
+        console.log('Fetching JIRA tickets for user:', user);
+        if (!user?.id) return;
+        
+        setJiraLoading(true);
+        setJiraError(null);
+        
+        try {
+            const response = await axios.get(
+                `http://localhost:8080/jiraConnection/oauth/allTickets/${user.id}`,
+                { withCredentials: true }
+            );
+            
+            // Convert response object to Map<string, string> for easier handling
+            // Ensure all values are cast to string to satisfy the state type
+            const ticketsObj = response.data;
+            const ticketsMap = new Map<string, string>(
+                Object.entries(ticketsObj).map(([k, v]) => [k, String(v)])
+            );
+            setJiraTickets(ticketsMap);
+        } catch (error) {
+            console.error('Error fetching JIRA tickets:', error);
+            setJiraError('Failed to load JIRA tickets');
+        } finally {
+            setJiraLoading(false);
+        }
+    };
+
     const handleLogin = () => {
         window.location.href = 'http://localhost:8080/oauth2/authorization/github';
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({
+            ...prev,
+            [name]: value
+        }));
+    };
+
+    const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({
             ...prev,
@@ -173,6 +223,48 @@ const CompareForm: React.FC = () => {
                     </p>
 
                     <form onSubmit={handleSubmit} className="space-y-5">
+                        {/* JIRA Ticket Dropdown */}
+                        <div>
+                            <label htmlFor="jiraTicketKey" className="block text-xs font-medium text-gray-400 mb-2 uppercase tracking-wide flex items-center gap-2">
+                                <Ticket className="w-4 h-4" />
+                                JIRA Ticket (Optional)
+                            </label>
+                            <select
+                                id="jiraTicketKey"
+                                name="jiraTicketKey"
+                                value={formData.jiraTicketKey}
+                                onChange={handleSelectChange}
+                                disabled={!user || jiraLoading}
+                                className="w-full px-4 py-3 bg-gray-900/50 border border-gray-800 rounded-lg text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <option value="">
+                                    {jiraLoading ? 'Loading tickets...' : 'Select a JIRA ticket'}
+                                </option>
+                                {Array.from(jiraTickets.entries()).map(([key, summary]) => (
+                                    <option key={key} value={key}>
+                                        {key} - {summary}
+                                    </option>
+                                ))}
+                            </select>
+                            {jiraError && (
+                                <p className="mt-2 text-xs text-red-400 flex items-center gap-1">
+                                    <span>⚠</span> {jiraError}
+                                    <button
+                                        type="button"
+                                        onClick={fetchJiraTickets}
+                                        className="ml-2 underline hover:text-red-300"
+                                    >
+                                        Retry
+                                    </button>
+                                </p>
+                            )}
+                            {formData.jiraTicketKey && (
+                                <p className="mt-2 text-xs text-green-400">
+                                    ✓ Selected: {formData.jiraTicketKey}
+                                </p>
+                            )}
+                        </div>
+
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label htmlFor="owner" className="block text-xs font-medium text-gray-400 mb-2 uppercase tracking-wide">
