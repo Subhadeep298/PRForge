@@ -1,9 +1,6 @@
 package com.example.be.service.impl;
 
-import com.example.be.dto.JiraConnectionRequestDto;
-import com.example.be.dto.JiraIssueDetails;
-import com.example.be.dto.JiraIssueDetailsResponse;
-import com.example.be.dto.ValidateResponse;
+import com.example.be.dto.*;
 import com.example.be.exception.UserDoesNotExists;
 import com.example.be.model.JiraConnection;
 import com.example.be.model.User;
@@ -16,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import tools.jackson.databind.JsonNode;
 
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
@@ -62,14 +60,6 @@ public class JiraConnectionServiceImpl implements JiraConnectionService {
                 .token(jiraConnectionRequestDto.getToken())
                 .projectName(jiraConnectionRequestDto.getProjectName())
                 .projectKey(jiraConnectionRequestDto.getProjectKey())
-                // OAuth fields null for manual connections
-                .jiraAccountId(null)
-                .jiraEmail(null)
-                .cloudId(null)
-                .baseUrl(null)
-                .oauthAccessToken(null)
-                .oauthRefreshToken(null)
-                .oauthAccessTokenExpiresAt(null)
                 .createdAt(new Date())
                 .updatedAt(new Date())
                 .build();
@@ -87,7 +77,7 @@ public class JiraConnectionServiceImpl implements JiraConnectionService {
 
     public boolean testJiraConnection(JiraConnectionRequestDto jiraConnectionRequestDto) {
         log.info("Testing Jira connection for: {}", jiraConnectionRequestDto.getName());
-        boolean keyAndNameValid = doesConnectionExistandNameMatch(
+        boolean keyAndNameValid = doesConnectionExistAndNameMatch(
                 jiraConnectionRequestDto.getDomainUrl(),
                 jiraConnectionRequestDto.getProjectKey(),
                 jiraConnectionRequestDto.getProjectName(),
@@ -97,11 +87,12 @@ public class JiraConnectionServiceImpl implements JiraConnectionService {
         return keyAndNameValid;
     }
 
-    public boolean doesConnectionExistandNameMatch(String domainurl, String projectKey,
-            String expectedProjectName, String apiToken, String username) {
-        String url = domainurl + "/rest/api/3/project/" + projectKey;
+
+    public boolean doesConnectionExistAndNameMatch(String domainUrl, String projectKey,
+                                                   String expectedProjectName, String apiToken, String username) {
+        String url = domainUrl + "/rest/api/3/project/" + projectKey;
         try {
-            HttpHeaders headers = createAuthHeader(username, apiToken);
+            HttpHeaders headers = createBasicAuthHeader(username, apiToken);
             HttpEntity<String> entity = new HttpEntity<>(headers);
 
             ResponseEntity<Map> response = restTemplate.exchange(url, HttpMethod.GET, entity, Map.class);
@@ -120,7 +111,7 @@ public class JiraConnectionServiceImpl implements JiraConnectionService {
         }
     }
 
-    public HttpHeaders createAuthHeader(String username, String apiToken) {
+    private HttpHeaders createBasicAuthHeader(String username, String apiToken) {
         String auth = username + ":" + apiToken;
         String encodedAuth = Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
         HttpHeaders headers = new HttpHeaders();
@@ -242,31 +233,43 @@ public class JiraConnectionServiceImpl implements JiraConnectionService {
         }
     }
 
-    // NEW: OAuth version – use userId + bearer token + baseUrl
-    @Override
+
     public JiraIssueDetailsResponse getTicketByIdUsingOAuth(String userId, String ticketKey) {
-        log.info("Fetching ticket {} for user {} using OAuth Jira connection", ticketKey, userId);
+        log.info("Fetching ticket {} for connection {} using OAuth Jira connection", ticketKey, userId);
 
-        JiraConnection connection = jiraConnectionRepo.findAllByUserId(userId).stream()
-                .filter(c -> c.getOauthAccessToken() != null)
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("No OAuth Jira connection found for user"));
+        // 1. Load connection and validate OAuth fields
+        JiraConnectionOAuth connection = userService.findByProviderId(userId).getJiraConnectionOAuth();
 
-        String baseUrl = connection.getBaseUrl();
-        String url = baseUrl + "/rest/api/3/issue/{ticketId}";
+        if (connection.getOauthAccessToken() == null || connection.getCloudId() == null) {
+            throw new RuntimeException("Missing OAuth token or cloudId for userId: " + userId);
+        }
 
-        HttpHeaders headers = createOauthAuthHeader(connection.getOauthAccessToken());
+        String cloudId = connection.getCloudId();
+
+        // 2. Build URL using api.atlassian.com + cloudId
+        String url = "https://api.atlassian.com/ex/jira/"
+                + cloudId
+                + "/rest/api/3/issue/{ticketId}";
+
+        // 3. OAuth Bearer header
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(connection.getOauthAccessToken());
+        headers.set("Accept", "application/json");
+
         HttpEntity<Void> entity = new HttpEntity<>(headers);
 
+        // 4. Path variable for issue key or id
         Map<String, String> uriVariables = new HashMap<>();
         uriVariables.put("ticketId", ticketKey);
 
+        // 5. Call Jira
         ResponseEntity<JsonNode> response = restTemplate.exchange(
                 url,
                 HttpMethod.GET,
                 entity,
                 JsonNode.class,
-                uriVariables);
+                uriVariables
+        );
 
         JiraIssueDetails issueDetails = extractIssueDetails(response.getBody());
 
@@ -278,41 +281,57 @@ public class JiraConnectionServiceImpl implements JiraConnectionService {
                 .build();
     }
 
+
     // NEW: OAuth version of "get all tickets"
     @Override
-    public Map<String, String> getAllTicketsForUserUsingOAuth(String userId) {
-        log.info("Fetching all tickets for user {} using OAuth Jira connection", userId);
+    public Map<String, String> getAllTicketsForCurrentUserOAuth(String userId) {
+        log.info("Fetching all tickets for userId: {}", userId);
 
-        JiraConnection connection = jiraConnectionRepo.findAllByUserId(userId).stream()
-                .filter(c -> c.getOauthAccessToken() != null)
-                .findFirst()
-                .orElseThrow(() -> new RuntimeException("No OAuth Jira connection found for user"));
+        // 1. Fetch connection & validate OAuth fields
+        JiraConnectionOAuth connection = userService.findByProviderId(userId).getJiraConnectionOAuth();
 
-        String jiraUrl = connection.getBaseUrl();
-        String url = jiraUrl + "/rest/api/3/search/jql?jql={jql}&startAt={startAt}&maxResults={maxResults}&fields=*all";
+        if (connection.getOauthAccessToken() == null || connection.getBaseUrl() == null) {
+            throw new RuntimeException("Missing OAuth token or baseUrl");
+        }
 
-        HttpHeaders headers = createOauthAuthHeader(connection.getOauthAccessToken());
+        // 2. Build JQL using your OAuth fields (same logic as your Basic Auth)
+        String jql;
+//        if (connection.getProjectKey() != null && !connection.getProjectKey().isEmpty()) {
+//            jql = "project = " + connection.getProjectKey() + " ORDER BY created DESC";
+//        } else {
+            // Safe bounded fallback – limit by current user or date
+            jql = "reporter = currentUser() ORDER BY created DESC";
+            // or e.g. "created >= -30d ORDER BY created DESC"
+//        }
+
+
+        // 3. Build URL using baseUrl (your OAuth field)
+        String url = "https://api.atlassian.com/ex/jira/"
+                + connection.getCloudId()
+                + "/rest/api/3/search/jql?jql={jql}&maxResults={maxResults}&fields={fields}";
+
+
+
+        // 4. OAuth Bearer token (instead of Basic Auth)
+        String auth = connection.getOauthAccessToken();  // Your OAuth field
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(auth);  // Bearer {oauthAccessToken}
+        headers.set("Accept", "application/json");
+
         HttpEntity<Void> entity = new HttpEntity<>(headers);
 
+        // 5. Same URI variables as your code
         Map<String, Object> uriVariables = new HashMap<>();
-        if (connection.getProjectKey() != null && !connection.getProjectKey().isEmpty()) {
-            uriVariables.put("jql", "project=" + connection.getProjectKey() + " ORDER BY created DESC");
-        } else {
-            uriVariables.put("jql", "ORDER BY created DESC");
-        }
+        uriVariables.put("jql", jql);
         uriVariables.put("startAt", 0);
         uriVariables.put("maxResults", 100);
         uriVariables.put("fields", "summary,description,status,assignee,reporter,priority,created,updated,comment");
-        uriVariables.put("expand", "names,schema");
 
+        // 6. Same REST call
         ResponseEntity<JsonNode> response = restTemplate.exchange(
-                url,
-                HttpMethod.GET,
-                entity,
-                JsonNode.class,
-                uriVariables);
+                url, HttpMethod.GET, entity, JsonNode.class, uriVariables);
 
-        log.info("Tickets fetched successfully for user {} using OAuth", userId);
+        log.info("Tickets fetched successfully for userId: {}", userId);
         return extractTicketKeys(response.getBody());
     }
 
